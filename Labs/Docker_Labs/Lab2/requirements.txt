@@ -1,5 +1,14 @@
+# Core ML and data science libraries
 tensorflow==2.15.0
-scikit-learn
 keras
+scikit-learn
+matplotlib
+scipy
+seaborn
+
+# MLOps and data pipeline tools
+tfx
+
+# Web and API
 Flask
 requests
