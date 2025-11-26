@@ -1,4 +1,4 @@
-### Lab Title: **Advanced BigQuery: Data Transformation and Query Optimization**
+# Lab Title: **Advanced BigQuery: Data Transformation and Query Optimization**
 
 This is my modified implementation of Lab 3.
 All queries and tables in this lab were implemented within my Google Cloud project gcp-lab3-mlops.
@@ -11,7 +11,7 @@ I manually uploaded this dataset into BigQuery, instead of using the public data
 
 Below are the steps I completed and the SQL used for each part.
 
-# STEP 1 — Cleaned & Enriched Table
+### STEP 1 — Cleaned & Enriched Table
 
 Adds:
 duration_min
@@ -33,7 +33,7 @@ WHERE
   AND end_time IS NOT NULL;
 
 
-# STEP 2 — Create the UDF (JavaScript Function)
+### STEP 2 — Create the UDF (JavaScript Function)
 
 Computes speed in km/h from coordinates + duration.
 
@@ -69,7 +69,7 @@ LANGUAGE js AS """
 """;
 
 
-# STEP 3 — Create Table With Speed
+### STEP 3 — Create Table With Speed
 
 Now we apply the UDF to cleaned data.
 We also filter out invalid durations (duration_min > 0).
@@ -90,7 +90,7 @@ FROM
 WHERE
   duration_min > 0;
 
-# STEP 4 — Custom Analytics Query (Fastest Routes)
+### STEP 4 — Custom Analytics Query (Fastest Routes)
 
 Because your dataset is small, we use HAVING trip_count >= 1.
 
@@ -111,7 +111,7 @@ HAVING trip_count >= 1
 ORDER BY avg_speed_kmh DESC
 LIMIT 10;
 
-# STEP 5 — Partitioned + Clustered Table
+### STEP 5 — Partitioned + Clustered Table
 
 This is one of your modifications:
 Partition by end_time (NOT start_time)
@@ -124,7 +124,7 @@ CLUSTER BY end_station_name AS
 SELECT *
 FROM `gcp-lab3-mlops.bikeshare_custom.bikeshare_with_speed`;
 
-# STEP 6 — Materialized View (Custom View)
+### STEP 6 — Materialized View (Custom View)
 
 Average trip duration by hour.
 
@@ -143,7 +143,7 @@ SELECT *
 FROM `gcp-lab3-mlops.bikeshare_custom.mv_avg_duration_by_hour`
 ORDER BY start_hour;
 
-# STEP 7 — Validation Queries
+### STEP 7 — Validation Queries
 
 Validate speed distribution:
 Query:
@@ -165,7 +165,7 @@ SELECT *
 FROM `gcp-lab3-mlops.bikeshare_custom.bikeshare_with_speed`
 LIMIT 10;
 
-# Step 8
+### Step 8
 
 WINDOW FUNCTION ANALYSIS
 For each row:
