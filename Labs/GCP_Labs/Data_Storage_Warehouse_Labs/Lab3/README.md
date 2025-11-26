@@ -1,207 +1,193 @@
 ### Lab Title: **Advanced BigQuery: Data Transformation and Query Optimization**
 
-You can watch the toturial video at [Video](https://youtu.be/sw2Wy6gGBLw)
+This is my modified implementation of Lab 3.
+All queries and tables in this lab were implemented within my Google Cloud project gcp-lab3-mlops.
+I modified the original Lab 3 by manually uploading the professor-provided CSV into my own BigQuery dataset and building a completely custom processing pipeline around it. I created a cleaned and enriched table with engineered features such as trip duration, start hour, and day of week, and I implemented a brand-new JavaScript UDF to calculate speed in km/h using the haversine formula. I then generated a speed-enhanced table, performed a unique analytics query to identify the fastest routes, and added an advanced SQL window function to compute rolling average speeds—none of which exist in the professor's version. Additionally, I optimized the data warehouse layer using a different partitioning strategy (partition by end date) and clustering column (end station name), and I built a custom materialized view for average duration by hour. These modifications ensure that my implementation is functional, original, and clearly distinct from the provided lab.
+
+The professor's repository included a Bikeshare CSV file.
+I manually uploaded this dataset into BigQuery, instead of using the public dataset referenced in the lab instructions.
+
+## Implementation Steps
+
+Below are the steps I completed and the SQL used for each part.
+
+# STEP 1 — Cleaned & Enriched Table
+
+Adds:
+duration_min
+start_hour
+day_of_week
+Removes rows with missing timestamps
+
+Query: 
+CREATE OR REPLACE TABLE `gcp-lab3-mlops.bikeshare_custom.cleaned_bikeshare` AS
+SELECT
+  *,
+  TIMESTAMP_DIFF(end_time, start_time, MINUTE) AS duration_min,
+  EXTRACT(HOUR FROM start_time) AS start_hour,
+  EXTRACT(DAYOFWEEK FROM start_time) AS day_of_week
+FROM
+  `gcp-lab3-mlops.bikeshare_custom.custom_bikeshare`
+WHERE
+  start_time IS NOT NULL
+  AND end_time IS NOT NULL;
 
 
-### Lab Objective:
-In this lab, you will learn how to:
-1. Perform advanced SQL transformations in BigQuery.
-2. Optimize query performance using partitioning and clustering.
-3. Work with user-defined functions (UDFs) for custom data processing.
-4. Use window functions to aggregate data over partitions.
-5. Create materialized views to improve query efficiency.
+# STEP 2 — Create the UDF (JavaScript Function)
 
----
+Computes speed in km/h from coordinates + duration.
 
-### Prerequisites:
-- Basic knowledge of SQL and BigQuery.
-- Access to Google Cloud Platform with BigQuery enabled.
-- A dataset available in BigQuery or instructions to import your CSV dataset (`Bikeshare_Trip_Dataset.csv`).
-
----
-
-### Lab Setup:
-
-We will use the `bikeshare001.bikeshare` dataset.
-
----
-
-### Step 1: **Advanced Data Transformation with SQL**
-
-1. **Filter Data and Aggregate**
-
-```sql
-SELECT 
-  start_station_name,
-  COUNT(trip_id) AS total_rides,
-  EXTRACT(MONTH FROM start_time) AS ride_month
-FROM 
-  `table_name.bikeshare001.bikeshare`
-WHERE 
-  start_time BETWEEN '2023-10-01' AND '2024-10-01'
-GROUP BY 
-  start_station_name, ride_month
-ORDER BY 
-  total_rides DESC;
-```
-
-This query filters the dataset for trips that occurred between October 2023 and October 2024. It groups the trips by the start station and the month of the trip, counting the total number of rides for each station in each month and orders the result by the number of rides in descending order.
-
----
-
-2. **JOIN Example (Merging Data)**
-
-```sql
-SELECT 
-  a.start_station_name, 
-  a.total_rides AS rides_2023, 
-  b.total_rides AS rides_2024
-FROM (
-  SELECT start_station_name, COUNT(trip_id) AS total_rides
-  FROM `table_name.bikeshare001.bikeshare`
-  WHERE EXTRACT(YEAR FROM start_time) = 2023
-  GROUP BY start_station_name
-) AS a
-JOIN (
-  SELECT start_station_name, COUNT(trip_id) AS total_rides
-  FROM `table_name.bikeshare001.bikeshare`
-  WHERE EXTRACT(YEAR FROM start_time) = 2024
-  GROUP BY start_station_name
-) AS b
-ON a.start_station_name = b.start_station_name;
-```
-
-This query compares the number of rides that started at each station between 2023 and 2024 by performing a self-join on the `start_station_name`.
-
----
-
-### Step 2: **Optimizing Query Performance**
-
-1. **Partitioning Tables:**
-
-```sql
-CREATE OR REPLACE TABLE `table_name.bikeshare001.partitioned_trips`
-PARTITION BY DATE(start_time) AS
-SELECT * FROM `table_name.bikeshare001.bikeshare`;
-```
-
-This query creates a partitioned table based on the `start_time` column, allowing for faster queries when filtering by date.
-
----
-
-2. **Clustering:**
-
-```sql
-CREATE OR REPLACE TABLE `table_name.bikeshare001.clustered_trips`
-PARTITION BY DATE(start_time)
-CLUSTER BY start_station_name AS
-SELECT * FROM `table_name.bikeshare001.bikeshare`;
-```
-
-This query creates a table that is partitioned by date and clustered by the `start_station_name`. Clustering allows for more efficient queries when filtering by station names.
-
----
-
-### Step 3: **Working with User-Defined Functions (UDFs)**
-
-1. **Create the UDF:**
-
-```sql
-CREATE OR REPLACE FUNCTION `table_name.bikeshare001.calculate_distance`(
-  lat1 FLOAT64, lon1 FLOAT64, lat2 FLOAT64, lon2 FLOAT64)
+Query: 
+CREATE OR REPLACE FUNCTION `gcp-lab3-mlops.bikeshare_custom.calc_speed_kmh`(
+  start_lat FLOAT64,
+  start_lon FLOAT64,
+  end_lat FLOAT64,
+  end_lon FLOAT64,
+  duration_min FLOAT64
+)
 RETURNS FLOAT64
 LANGUAGE js AS """
-  function toRadians(deg) { return deg * (Math.PI / 180); }
-  var R = 6371; // Radius of the Earth in km
-  var dLat = toRadians(lat2 - lat1);
-  var dLon = toRadians(lon2 - lon1);
-  var a = Math.sin(dLat/2) * Math.sin(dLat/2) +
-          Math.cos(toRadians(lat1)) * Math.cos(toRadians(lat2)) *
-          Math.sin(dLon/2) * Math.sin(dLon/2);
-  var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-  var distance = R * c;
-  return distance;
+  function rad(x){ return x * Math.PI / 180; }
+  var R = 6371;  // Earth radius in km
+
+  var dLat = rad(end_lat - start_lat);
+  var dLon = rad(end_lon - start_lon);
+
+  var a = Math.sin(dLat/2)**2
+        + Math.cos(rad(start_lat)) * Math.cos(rad(end_lat))
+        * Math.sin(dLon/2)**2;
+
+  var c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  var distance_km = R * c;
+
+  // JS null check
+  if (duration_min == null || duration_min <= 0) {
+    return null;
+  }
+
+  return distance_km / (duration_min / 60);   // km/h
 """;
-```
 
-This creates a User-Defined Function (UDF) that calculates the distance between two points (start and end stations) based on their latitude and longitude coordinates using the haversine formula.
 
----
+# STEP 3 — Create Table With Speed
 
-2. **Use the UDF in a Query:**
+Now we apply the UDF to cleaned data.
+We also filter out invalid durations (duration_min > 0).
 
-```sql
-SELECT 
-  start_station_name, 
-  end_station_name, 
-  `table_name.bikeshare001.calculate_distance`(
-    start_station_latitude, start_station_longitude, 
-    end_station_latitude, end_station_longitude) AS distance_km
-FROM 
-  `table_name.bikeshare001.bikeshare`
-ORDER BY distance_km DESC
-LIMIT 10;
-```
+Query: 
+CREATE OR REPLACE TABLE `gcp-lab3-mlops.bikeshare_custom.bikeshare_with_speed` AS
+SELECT
+  *,
+  `gcp-lab3-mlops.bikeshare_custom.calc_speed_kmh`(
+    start_station_latitude,
+    start_station_longitude,
+    end_station_latitude,
+    end_station_longitude,
+    duration_min
+  ) AS speed_kmh
+FROM
+  `gcp-lab3-mlops.bikeshare_custom.cleaned_bikeshare`
+WHERE
+  duration_min > 0;
 
-This query uses the UDF to calculate the distance between the start and end stations for each trip and returns the 10 longest trips.
+# STEP 4 — Custom Analytics Query (Fastest Routes)
 
----
+Because your dataset is small, we use HAVING trip_count >= 1.
 
-### Step 4: **Using Window Functions**
-
-1. **Rank the Start Stations by Rides:**
-
-```sql
-SELECT 
+Query: 
+SELECT
   start_station_name,
-  COUNT(trip_id) AS total_rides,
-  RANK() OVER (ORDER BY COUNT(trip_id) DESC) AS rank
-FROM 
-  `table_name.bikeshare001.bikeshare`
-GROUP BY 
-  start_station_name
-ORDER BY 
-  rank;
-```
+  end_station_name,
+  AVG(speed_kmh) AS avg_speed_kmh,
+  COUNT(*) AS trip_count
+FROM
+  `gcp-lab3-mlops.bikeshare_custom.bikeshare_with_speed`
+WHERE
+  speed_kmh IS NOT NULL
+GROUP BY
+  start_station_name,
+  end_station_name
+HAVING trip_count >= 1
+ORDER BY avg_speed_kmh DESC
+LIMIT 10;
 
-This query ranks each station based on the total number of rides starting from that station, providing a way to see the busiest stations.
+# STEP 5 — Partitioned + Clustered Table
 
----
+This is one of your modifications:
+Partition by end_time (NOT start_time)
+Cluster by end_station_name
 
-### Step 5: **Creating Materialized Views**
+Query:
+CREATE OR REPLACE TABLE `gcp-lab3-mlops.bikeshare_custom.partitioned_clustered_bikeshare`
+PARTITION BY DATE(end_time)
+CLUSTER BY end_station_name AS
+SELECT *
+FROM `gcp-lab3-mlops.bikeshare_custom.bikeshare_with_speed`;
 
-1. **Create a Materialized View:**
+# STEP 6 — Materialized View (Custom View)
 
-```sql
-CREATE MATERIALIZED VIEW `table_name.bikeshare001.materialized_view`
-AS 
-SELECT 
-  start_station_name, 
-  COUNT(trip_id) AS total_rides
-FROM 
-  `table_name.bikeshare001.bikeshare`
-GROUP BY 
-  start_station_name;
-```
+Average trip duration by hour.
 
-This creates a materialized view that precomputes and stores the total rides per station, improving performance for future queries.
+Query:
+CREATE MATERIALIZED VIEW `gcp-lab3-mlops.bikeshare_custom.mv_avg_duration_by_hour` AS
+SELECT
+  start_hour,
+  AVG(duration_min) AS avg_duration_min,
+  COUNT(*) AS trip_count
+FROM
+  `gcp-lab3-mlops.bikeshare_custom.bikeshare_with_speed`
+GROUP BY
+  start_hour;
 
----
+SELECT *
+FROM `gcp-lab3-mlops.bikeshare_custom.mv_avg_duration_by_hour`
+ORDER BY start_hour;
 
-2. **Querying the Materialized View:**
+# STEP 7 — Validation Queries
 
-```sql
-SELECT * FROM `table_name.bikeshare001.materialized_view`
-ORDER BY total_rides DESC;
-```
+Validate speed distribution:
+Query:
+SELECT
+  MIN(speed_kmh) AS min_speed,
+  MAX(speed_kmh) AS max_speed,
+  AVG(speed_kmh) AS avg_speed
+FROM `gcp-lab3-mlops.bikeshare_custom.bikeshare_with_speed`
+WHERE speed_kmh IS NOT NULL;
 
-This query retrieves the results from the materialized view, showing the stations ordered by the number of trips that started there.
+Count valid rows:
+Query:
+SELECT COUNT(*) 
+FROM `gcp-lab3-mlops.bikeshare_custom.bikeshare_with_speed`;
 
----
+View a sample:
+Query:
+SELECT *
+FROM `gcp-lab3-mlops.bikeshare_custom.bikeshare_with_speed`
+LIMIT 10;
 
-### Conclusion:
-In this lab, you've learned how to:
-- Use advanced SQL queries in BigQuery.
-- Implement optimizations using partitioning, clustering, and materialized views.
-- Create and use User-Defined Functions.
-- Apply window functions for analytics.
+# Step 8
+
+WINDOW FUNCTION ANALYSIS
+For each row:
+It looks at trips from the same start station
+Orders them by time
+Computes the average speed of the last 4 trips, including the current one
+
+Query:
+SELECT
+  trip_id,
+  start_station_name,
+  end_station_name,
+  start_time,
+  speed_kmh,
+
+  -- Window function: rolling average speed
+  AVG(speed_kmh) OVER (
+    PARTITION BY start_station_name
+    ORDER BY start_time
+    ROWS BETWEEN 3 PRECEDING AND CURRENT ROW
+  ) AS rolling_avg_speed_last_4_trips
+
+FROM `gcp-lab3-mlops.bikeshare_custom.bikeshare_with_speed`
+WHERE speed_kmh IS NOT NULL
+ORDER BY start_station_name, start_time;

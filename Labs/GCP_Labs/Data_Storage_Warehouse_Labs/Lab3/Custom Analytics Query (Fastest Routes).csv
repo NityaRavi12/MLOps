@@ -1,0 +1,11 @@
+start_station_name,end_station_name,avg_speed_kmh,trip_count
+Station_27,Station_5,3.1981165012191792,1
+Station_11,Station_6,2.3941284323071597,1
+Station_50,Station_49,1.8956223147530216,1
+Station_40,Station_31,1.7146300685347797,1
+Station_24,Station_47,0.87996130631503,1
+Station_42,Station_4,0.87935890699132757,1
+Station_20,Station_3,0.78095017599109251,1
+Station_22,Station_16,0.74985143403942323,1
+Station_18,Station_36,0.72874034569914448,1
+Station_43,Station_40,0.71595823743270093,1
